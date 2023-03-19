@@ -1,4 +1,4 @@
-use actix_web::{middleware, web, App, Error, HttpRequest, HttpResponse, HttpServer};
+use actix_web::{middleware, web, App, HttpRequest, HttpResponse, HttpServer};
 use dotenv;
 use serde::{Deserialize, Serialize};
 
@@ -7,9 +7,8 @@ mod otp;
 #[derive(Deserialize)]
 struct GenerateSecret {
     length: Option<usize>,
-    algo: Option<String>,
     digits: Option<u8>,
-    period: Option<u32>,
+    period: Option<u8>,
     issuer: Option<String>,
     account_name: Option<String>,
 }
@@ -23,26 +22,28 @@ struct GenerateSecretResponse {
 #[derive(Deserialize)]
 struct GenerateOTP {
     secret: String,
-    encoding: Option<String>,
+    counter: Option<u128>,
+    digits: Option<u8>,
+    period: Option<u8>,
 }
 
 #[derive(Serialize)]
 struct GenerateOTPResponse {
     token: String,
-    period: u32,
 }
 
 #[derive(Deserialize)]
 struct VerifyOTP {
-    secret: String,
     token: String,
-    encoding: Option<String>,
+    secret: String,
+    counter: Option<u128>,
+    period: Option<u8>,
+    window: Option<u8>,
 }
 
 #[derive(Serialize)]
 struct VerifyOTPResponse {
     is_valid: bool,
-    period: u32,
     message: String,
 }
 
@@ -50,11 +51,8 @@ async fn home(_: HttpRequest) -> String {
     String::from("Authenticator")
 }
 
-async fn generate_secret(query: web::Query<GenerateSecret>) -> Result<HttpResponse, Error> {
-    let algo = match &query.algo {
-        None => "SHA1".to_string(),
-        Some(v) => v.to_string(),
-    };
+async fn generate_secret(query: web::Query<GenerateSecret>) -> HttpResponse {
+    let algo = "SHA1";
     let digits = match query.digits {
         None => 6,
         Some(v) => v,
@@ -64,12 +62,12 @@ async fn generate_secret(query: web::Query<GenerateSecret>) -> Result<HttpRespon
         Some(v) => v,
     };
     let issuer = match &query.issuer {
-        None => "Authenticator".to_string(),
-        Some(v) => v.to_string(),
+        None => "Authenticator",
+        Some(v) => v,
     };
     let account_name = match &query.account_name {
-        None => "".to_string(),
-        Some(v) => v.to_string(),
+        None => "",
+        Some(v) => v,
     };
     let generated_secret = otp::generate_secret(query.length);
     let uri = format!("otpauth://totp/{issuer}:{account_name}?secret={generated_secret}&algorithm={algo}&digits={digits}&period={period}");
@@ -78,40 +76,55 @@ async fn generate_secret(query: web::Query<GenerateSecret>) -> Result<HttpRespon
     let qr_code =
         format!("https://chart.googleapis.com/chart?chs={qr_code_width}x{qr_code_height}&chld=M&cht=qr&chl={uri}");
 
-    Ok(HttpResponse::Created().json(GenerateSecretResponse {
+    HttpResponse::Created().json(GenerateSecretResponse {
         secret: generated_secret,
         uri: uri,
         qr_code: qr_code,
-    }))
+    })
 }
 
-async fn generate_otp(payload: web::Json<GenerateOTP>) -> Result<HttpResponse, Error> {
-    println!("secret {}", payload.secret);
-    println!("encoding {:?}", payload.encoding);
-    let result = GenerateOTPResponse {
-        token: "token".to_string(),
-        period: 30,
-    };
-    Ok(HttpResponse::Created().json(result))
+async fn generate_otp(payload: web::Json<GenerateOTP>) -> HttpResponse {
+    let token = otp::generate_hotp(
+        payload.secret.clone(),
+        payload.counter,
+        payload.digits,
+        payload.period,
+    );
+    let result = GenerateOTPResponse { token: token };
+    HttpResponse::Created().json(result)
 }
 
-async fn validate_otp(payload: web::Json<VerifyOTP>) -> Result<HttpResponse, Error> {
-    println!("secret {}", payload.secret);
-    println!("encoding {:?}", payload.encoding);
-    let result = VerifyOTPResponse {
-        is_valid: true,
-        period: 30,
-        message: "OTP is valid".to_string(),
+async fn validate_otp(payload: web::Json<VerifyOTP>) -> HttpResponse {
+    let (is_valid, message) = match otp::validate_otp(
+        payload.token.clone(),
+        payload.secret.clone(),
+        payload.counter,
+        payload.period,
+        payload.window,
+    ) {
+        Ok(res) => (
+            res,
+            if res == true {
+                "OTP is valid".to_string()
+            } else {
+                "OTP is not valid".to_string()
+            },
+        ),
+        Err(msg) => (false, msg),
     };
-    Ok(HttpResponse::Ok().json(result))
+
+    if is_valid == true {
+        return HttpResponse::Ok().json(VerifyOTPResponse { is_valid, message });
+    }
+    return HttpResponse::BadRequest().json(VerifyOTPResponse { is_valid, message });
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv::dotenv().ok();
 
-    let port = match dotenv::var("PORT") {
-        Ok(val) => val.to_string(),
+    let port: String = match dotenv::var("PORT") {
+        Ok(val) => val,
         Err(_) => "5000".to_string(),
     };
 
