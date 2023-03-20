@@ -139,7 +139,7 @@ pub fn validate_otp(
     };
 
     if window > 10 {
-        return Err("window too big".to_string());
+        return Err("error window too big".to_string());
     }
 
     let period = match period {
