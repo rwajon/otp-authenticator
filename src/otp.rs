@@ -1,11 +1,8 @@
-use base32::Alphabet::RFC4648;
+use base32::Alphabet::{Crockford, RFC4648};
 use hmac::{Hmac, Mac};
 use rand::{distributions::Alphanumeric, Rng};
 use sha1::Sha1;
-use std::{
-    ops::{Add, Sub},
-    time::SystemTime,
-};
+use std::{ops::Add, time::SystemTime};
 
 type HmacSha1 = Hmac<Sha1>;
 
@@ -16,11 +13,7 @@ type HmacSha1 = Hmac<Sha1>;
 /// * `length` - length of the secret
 /// ```
 pub fn generate_secret(length: Option<usize>) -> String {
-    let text_length = match length {
-        None => 32,
-        Some(v) => v,
-    };
-
+    let text_length = length.unwrap_or(32);
     let random_text: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
         .take(text_length)
@@ -44,26 +37,23 @@ pub fn generate_hotp(
     counter: Option<u128>,
     digits: Option<u8>,
     period: Option<u8>,
-) -> String {
+) -> Result<String, String> {
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_millis();
 
-    let period = match period {
-        None => 30,
+    let period = period.unwrap_or(30);
+    let digits = digits.unwrap_or(6);
+    let mut counter = counter.unwrap_or(now / (period as u128 * 1000));
+
+    let decoded_secret = match base32::decode(RFC4648 { padding: false }, &secret) {
+        None => match base32::decode(Crockford, &secret) {
+            None => return Err("Secret can not be decoded".to_string()),
+            Some(v) => v,
+        },
         Some(v) => v,
     };
-    let digits = match digits {
-        None => 6,
-        Some(v) => v,
-    };
-    let mut counter = match counter {
-        None => now / (period as u128 * 1000),
-        Some(v) => v,
-    };
-    let decoded_secret =
-        base32::decode(RFC4648 { padding: false }, &secret).expect("Secret can not be decoded");
 
     let mut digest = vec![0; 8];
 
@@ -72,10 +62,12 @@ pub fn generate_hotp(
         counter >>= 8;
     }
 
-    let mut hmac: Hmac<Sha1> =
-        HmacSha1::new_from_slice(&decoded_secret).expect("HMAC can take key of any size");
-
+    let mut hmac: Hmac<Sha1> = match HmacSha1::new_from_slice(&decoded_secret) {
+        Ok(v) => v,
+        Err(_) => return Err("Error generating HMAC".to_string()),
+    };
     hmac.update(&digest);
+
     let result = hmac.finalize().into_bytes();
     let offset: u8 = result[result.len() - 1] & 0xf;
     let code = ((u32::from(result[offset as usize]) & 0x7f) << 24)
@@ -90,7 +82,7 @@ pub fn generate_hotp(
         token = format!("0{token}");
     }
 
-    token
+    Ok(token)
 }
 
 /// Generate TOTP
@@ -107,7 +99,7 @@ pub fn generate_totp(
     counter: Option<u128>,
     digits: Option<u8>,
     period: Option<u8>,
-) -> String {
+) -> Result<String, String> {
     return generate_hotp(secret, counter, digits, period);
 }
 
@@ -133,39 +125,31 @@ pub fn validate_otp(
         .unwrap()
         .as_millis();
 
-    let window = match window {
-        None => 1,
-        Some(v) => v,
-    };
+    let period = period.unwrap_or(30);
+    let counter = counter.unwrap_or(now / (period as u128 * 1000));
+    let window = window.unwrap_or(1);
 
     if window > 10 {
-        return Err("error window too big".to_string());
+        return Err("error window is too big".to_string());
     }
-
-    let period = match period {
-        None => 30,
-        Some(v) => v,
-    };
-
-    let counter = match counter {
-        None => now / (period as u128 * 1000),
-        Some(v) => v,
-    };
 
     let mut error_window: i8 = 0 - window as i8;
 
     while error_window <= window as i8 {
-        let totp = generate_totp(
+        let totp = match generate_totp(
             secret.clone(),
             Some((counter as i128).add(error_window as i128) as u128),
             Some(token.len() as u8),
             Some(period),
-        );
+        ) {
+            Ok(v) => v,
+            Err(e) => return Err(e),
+        };
 
         if token == totp {
             return Ok(true);
         }
         error_window += 1;
     }
-    Ok(false)
+    return Err("OTP is not valid".to_string());
 }

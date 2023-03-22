@@ -555,12 +555,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fed44880c466736ef9a5c5b5facefb5ed0785676d0c02d612db14e54f0d84286"
 
 [[package]]
-name = "hex"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
-
-[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -761,6 +755,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7e5500299e16ebb147ae15a00a942af264cf3688f47923b8fc2cd5858f23ad3"
 
 [[package]]
+name = "otp-authenticator"
+version = "0.1.0"
+dependencies = [
+ "actix-web",
+ "base32",
+ "dotenv",
+ "env_logger",
+ "hmac",
+ "log",
+ "rand",
+ "serde",
+ "sha1",
+ "sha2",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -892,24 +902,6 @@ name = "regex-syntax"
 version = "0.6.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "456c603be3e8d448b072f410900c09faf164fbce2d480456f50eea6e25f9c848"
-
-[[package]]
-name = "rust-otp-authenticator"
-version = "0.1.0"
-dependencies = [
- "actix-web",
- "base32",
- "dotenv",
- "env_logger",
- "hex",
- "hmac",
- "log",
- "rand",
- "serde",
- "sha1",
- "sha2",
- "time",
-]
 
 [[package]]
 name = "rustc_version"
