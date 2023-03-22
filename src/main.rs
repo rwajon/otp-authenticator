@@ -4,9 +4,16 @@ use serde::{Deserialize, Serialize};
 
 mod otp;
 
+#[derive(Serialize)]
+struct Response {
+    message: String,
+}
+
 #[derive(Deserialize)]
 struct GenerateSecret {
     length: Option<usize>,
+    secret: Option<String>,
+    algo: Option<String>,
     digits: Option<u8>,
     period: Option<u8>,
     issuer: Option<String>,
@@ -51,25 +58,38 @@ async fn home(_: HttpRequest) -> String {
     String::from("Authenticator")
 }
 
+async fn get_qr_code(query: web::Query<GenerateSecret>) -> HttpResponse {
+    let algo = query.algo.clone().unwrap_or("SHA1".to_string());
+    let digits = query.digits.unwrap_or(6);
+    let period = query.period.unwrap_or(30);
+    let issuer = query.issuer.clone().unwrap_or("Authenticator".to_string());
+    let account_name = query.account_name.clone().unwrap_or("".to_string());
+    let secret = query
+        .secret
+        .clone()
+        .unwrap_or(otp::generate_secret(query.length));
+
+    let uri = format!("otpauth://totp/{issuer}:{account_name}?secret={secret}&algorithm={algo}&digits={digits}&period={period}");
+    let uri = uri.replace(":?", "?");
+    let (qr_code_width, qr_code_height) = (400, 400);
+    let qr_code =
+        format!("https://chart.googleapis.com/chart?chs={qr_code_width}x{qr_code_height}&chld=M&cht=qr&chl={uri}");
+
+    HttpResponse::Created().json(GenerateSecretResponse {
+        secret,
+        uri,
+        qr_code,
+    })
+}
+
 async fn generate_secret(query: web::Query<GenerateSecret>) -> HttpResponse {
     let algo = "SHA1";
-    let digits = match query.digits {
-        None => 6,
-        Some(v) => v,
-    };
-    let period = match query.period {
-        None => 30,
-        Some(v) => v,
-    };
-    let issuer = match &query.issuer {
-        None => "Authenticator",
-        Some(v) => v,
-    };
-    let account_name = match &query.account_name {
-        None => "",
-        Some(v) => v,
-    };
+    let digits = query.digits.unwrap_or(6);
+    let period = query.period.unwrap_or(30);
+    let issuer = query.issuer.clone().unwrap_or("Authenticator".to_string());
+    let account_name = query.account_name.clone().unwrap_or("".to_string());
     let generated_secret = otp::generate_secret(query.length);
+
     let uri = format!("otpauth://totp/{issuer}:{account_name}?secret={generated_secret}&algorithm={algo}&digits={digits}&period={period}");
     let uri = uri.replace(":?", "?");
     let (qr_code_width, qr_code_height) = (400, 400);
@@ -78,45 +98,44 @@ async fn generate_secret(query: web::Query<GenerateSecret>) -> HttpResponse {
 
     HttpResponse::Created().json(GenerateSecretResponse {
         secret: generated_secret,
-        uri: uri,
-        qr_code: qr_code,
+        uri,
+        qr_code,
     })
 }
 
 async fn generate_otp(payload: web::Json<GenerateOTP>) -> HttpResponse {
-    let token = otp::generate_hotp(
+    match otp::generate_hotp(
         payload.secret.clone(),
         payload.counter,
         payload.digits,
         payload.period,
-    );
-    let result = GenerateOTPResponse { token: token };
-    HttpResponse::Created().json(result)
+    ) {
+        Ok(token) => return HttpResponse::Created().json(GenerateOTPResponse { token }),
+        Err(message) => return HttpResponse::BadRequest().json(Response { message }),
+    };
 }
 
 async fn validate_otp(payload: web::Json<VerifyOTP>) -> HttpResponse {
-    let (is_valid, message) = match otp::validate_otp(
+    match otp::validate_otp(
         payload.token.clone(),
         payload.secret.clone(),
         payload.counter,
         payload.period,
         payload.window,
     ) {
-        Ok(res) => (
-            res,
-            if res == true {
-                "OTP is valid".to_string()
-            } else {
-                "OTP is not valid".to_string()
-            },
-        ),
-        Err(msg) => (false, msg),
+        Ok(is_valid) => {
+            return HttpResponse::Ok().json(VerifyOTPResponse {
+                is_valid,
+                message: "OTP is valid".to_string(),
+            })
+        }
+        Err(msg) => {
+            return HttpResponse::BadRequest().json(VerifyOTPResponse {
+                is_valid: false,
+                message: msg,
+            })
+        }
     };
-
-    if is_valid == true {
-        return HttpResponse::Ok().json(VerifyOTPResponse { is_valid, message });
-    }
-    return HttpResponse::BadRequest().json(VerifyOTPResponse { is_valid, message });
 }
 
 #[actix_web::main]
@@ -134,10 +153,10 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(|| {
         App::new()
-            // enable logger
             .wrap(middleware::Logger::default())
             .service(web::resource("/index.html").to(|| async { "Authenticator!" }))
             .route("/", web::get().to(home))
+            .route("/api/otp/qrcode", web::get().to(get_qr_code))
             .route("/api/otp/secret", web::get().to(generate_secret))
             .route("/api/otp/generate", web::post().to(generate_otp))
             .route("/api/otp/validate", web::post().to(validate_otp))
