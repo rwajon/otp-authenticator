@@ -104,14 +104,18 @@ async fn generate_secret(query: web::Query<GenerateSecret>) -> HttpResponse {
 }
 
 async fn generate_otp(payload: web::Json<GenerateOTP>) -> HttpResponse {
-    match otp::generate_hotp(
+    match otp::generate_otp(
         payload.secret.clone(),
         payload.counter,
         payload.digits,
         payload.period,
     ) {
         Ok(token) => return HttpResponse::Created().json(GenerateOTPResponse { token }),
-        Err(message) => return HttpResponse::BadRequest().json(Response { message }),
+        Err(msg) => {
+            return HttpResponse::BadRequest().json(Response {
+                message: msg.to_string(),
+            })
+        }
     };
 }
 
@@ -132,7 +136,7 @@ async fn validate_otp(payload: web::Json<VerifyOTP>) -> HttpResponse {
         Err(msg) => {
             return HttpResponse::BadRequest().json(VerifyOTPResponse {
                 is_valid: false,
-                message: msg,
+                message: msg.to_string(),
             })
         }
     };
