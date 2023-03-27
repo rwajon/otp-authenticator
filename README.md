@@ -23,9 +23,18 @@ Date: Mon, 01 Jan 1970 00:00:00 GMT
 
 ## Generate a OTP
 ### Request
+| Key | type | description |
+|--------|------|-------------|
+| `secret`| text | shared secret key (`required`) |
+| `counter`| number | the counter value, calculated from time by default (`optional`) |
+| `digits`| number | the number of digits for the token (`optional`) |
+| `period`| number | the time to live of the token. Default 30 seconds (`optional`) |
+
 `POST /api/otp/generate`
 ```
-curl -X POST http://localhost:5050/api/otp/generate -H 'Content-Type: application/json' -d '{"secret":"9CDD323DCFF8EE626D"}'
+curl -X POST http://localhost:5050/api/otp/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"secret":"9CDD323DCFF8EE626D"}'
 ```
 ### Response
 ```
@@ -40,10 +49,20 @@ Date: Mon, 01 Jan 1970 00:00:00 GMT
 ```
 
 ## Validate an OTP
+|Key | Type | Description |
+|--------|------|-------------|
+| `token`| text | OTP to validate (`required`) |
+| `secret`| text | shared secret key (`required`) |
+| `counter`| number | the counter value, calculated from time by default (`optional`) |
+| `period`| number | the time to live of the token. Default 30 seconds (`optional`) |
+| `window`| number | the allowable margin for the counter (`optional`) |
+
 ### Request
 `POST /api/otp/validate`
 ```
-curl -X POST http://localhost:5050/api/otp/validate -H 'Content-Type: application/json' -d '{"secret":"9CDD323DCFF8EE626D", "token": "062435"}'
+curl -X POST http://localhost:5050/api/otp/validate \
+  -H 'Content-Type: application/json' \
+  -d '{"secret":"9CDD323DCFF8EE626D", "token": "062435"}'
 ```
 ### Response
 ```
