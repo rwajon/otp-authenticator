@@ -2,7 +2,7 @@ use base32::Alphabet::{Crockford, RFC4648};
 use hmac::{Hmac, Mac};
 use rand::{distributions::Alphanumeric, Rng};
 use sha1::Sha1;
-use std::{ops::Add, time::SystemTime};
+use std::{error::Error, ops::Add, time::SystemTime};
 
 type HmacSha1 = Hmac<Sha1>;
 
@@ -32,12 +32,12 @@ pub fn generate_secret(length: Option<usize>) -> String {
 /// * `digits` - the number of digits for the token
 /// * `period` - the time to live of the token. Default 30 seconds
 /// ```
-pub fn generate_hotp(
+pub fn generate_otp(
     secret: String,
     counter: Option<u128>,
     digits: Option<u8>,
     period: Option<u8>,
-) -> Result<String, String> {
+) -> Result<String, Box<dyn Error>> {
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
@@ -49,7 +49,7 @@ pub fn generate_hotp(
 
     let decoded_secret = match base32::decode(RFC4648 { padding: false }, &secret) {
         None => match base32::decode(Crockford, &secret) {
-            None => return Err("Secret can not be decoded".to_string()),
+            None => return Err("Secret can not be decoded".into()),
             Some(v) => v,
         },
         Some(v) => v,
@@ -57,14 +57,15 @@ pub fn generate_hotp(
 
     let mut digest = vec![0; 8];
 
-    for i in 0..8 {
-        digest[7 - i] = counter as u8 & 0xff;
-        counter >>= 8;
+    for i in 0..digest.len() {
+        let index = digest.len() - 1;
+        digest[index - i] = counter as u8 & 0xff;
+        counter >>= digest.len();
     }
 
     let mut hmac: Hmac<Sha1> = match HmacSha1::new_from_slice(&decoded_secret) {
         Ok(v) => v,
-        Err(_) => return Err("Error generating HMAC".to_string()),
+        Err(_) => return Err("Error generating HMAC".into()),
     };
     hmac.update(&digest);
 
@@ -75,7 +76,10 @@ pub fn generate_hotp(
         | (u32::from((result[offset as usize + 2]) & 0xff) << 8)
         | (u32::from(result[offset as usize + 3]) & 0xff);
 
-    let token = code % (10 as u32).pow(digits as u32);
+    let token = match std::panic::catch_unwind(|| u32::pow(10, digits as u32)) {
+        Ok(v) => code % v,
+        Err(e) => return Err("the maximum number of digits allowed is 9".into()),
+    };
     let mut token = token.to_string();
 
     while token.len() < digits as usize {
@@ -83,24 +87,6 @@ pub fn generate_hotp(
     }
 
     Ok(token)
-}
-
-/// Generate TOTP
-///
-/// # Arguments
-///
-/// * `secret` - Shared secret key
-/// * `counter` - The counter value, calculated from time by default
-/// * `digits` - the number of digits for the token
-/// * `period` - the time to live of the token. Default 30 seconds
-/// ```
-pub fn generate_totp(
-    secret: String,
-    counter: Option<u128>,
-    digits: Option<u8>,
-    period: Option<u8>,
-) -> Result<String, String> {
-    return generate_hotp(secret, counter, digits, period);
 }
 
 /// Validate OTP
@@ -119,7 +105,7 @@ pub fn validate_otp(
     counter: Option<u128>,
     period: Option<u8>,
     window: Option<u8>,
-) -> Result<bool, String> {
+) -> Result<bool, Box<dyn Error>> {
     let now = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
@@ -130,13 +116,13 @@ pub fn validate_otp(
     let window = window.unwrap_or(1);
 
     if window > 10 {
-        return Err("error window is too big".to_string());
+        return Err("error window is too big".into());
     }
 
     let mut error_window: i8 = 0 - window as i8;
 
     while error_window <= window as i8 {
-        let totp = match generate_totp(
+        let otp = match generate_otp(
             secret.clone(),
             Some((counter as i128).add(error_window as i128) as u128),
             Some(token.len() as u8),
@@ -146,10 +132,10 @@ pub fn validate_otp(
             Err(e) => return Err(e),
         };
 
-        if token == totp {
+        if token == otp {
             return Ok(true);
         }
         error_window += 1;
     }
-    return Err("OTP is not valid".to_string());
+    return Err("OTP is not valid".into());
 }
