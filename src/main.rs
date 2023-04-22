@@ -105,7 +105,7 @@ async fn generate_secret(query: web::Query<GenerateSecret>) -> HttpResponse {
 
 async fn generate_otp(payload: web::Json<GenerateOTP>) -> HttpResponse {
     match otp::generate_otp(
-        payload.secret.clone(),
+        &payload.secret,
         payload.counter,
         payload.digits,
         payload.period,
@@ -121,8 +121,8 @@ async fn generate_otp(payload: web::Json<GenerateOTP>) -> HttpResponse {
 
 async fn validate_otp(payload: web::Json<VerifyOTP>) -> HttpResponse {
     match otp::validate_otp(
-        payload.token.clone(),
-        payload.secret.clone(),
+        &payload.token,
+        &payload.secret,
         payload.counter,
         payload.period,
         payload.window,

@@ -33,7 +33,7 @@ pub fn generate_secret(length: Option<usize>) -> String {
 /// * `period` - the time to live of the token. Default 30 seconds
 /// ```
 pub fn generate_otp(
-    secret: String,
+    secret: &str,
     counter: Option<u128>,
     digits: Option<u8>,
     period: Option<u8>,
@@ -78,7 +78,7 @@ pub fn generate_otp(
 
     let token = match std::panic::catch_unwind(|| u32::pow(10, digits as u32)) {
         Ok(v) => code % v,
-        Err(e) => return Err("the maximum number of digits allowed is 9".into()),
+        Err(_e) => return Err("the maximum number of digits allowed is 9".into()),
     };
     let mut token = token.to_string();
 
@@ -100,8 +100,8 @@ pub fn generate_otp(
 /// * `window` - The allowable margin for the counter
 /// ```
 pub fn validate_otp(
-    token: String,
-    secret: String,
+    token: &str,
+    secret: &str,
     counter: Option<u128>,
     period: Option<u8>,
     window: Option<u8>,
@@ -123,7 +123,7 @@ pub fn validate_otp(
 
     while error_window <= window as i8 {
         let otp = match generate_otp(
-            secret.clone(),
+            &secret,
             Some((counter as i128).add(error_window as i128) as u128),
             Some(token.len() as u8),
             Some(period),
