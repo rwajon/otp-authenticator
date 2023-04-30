@@ -1,4 +1,4 @@
-use base32::Alphabet::{Crockford, RFC4648};
+use base32::Alphabet::RFC4648;
 use hmac::{Hmac, Mac};
 use rand::{distributions::Alphanumeric, Rng};
 use sha1::Sha1;
@@ -48,10 +48,7 @@ pub fn generate_otp(
     let mut counter = counter.unwrap_or(now / (period as u128 * 1000));
 
     let decoded_secret = match base32::decode(RFC4648 { padding: false }, &secret) {
-        None => match base32::decode(Crockford, &secret) {
-            None => return Err("Secret can not be decoded".into()),
-            Some(v) => v,
-        },
+        None => secret.as_bytes().to_vec(),
         Some(v) => v,
     };
 
